@@ -7,6 +7,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE TypeOperators         #-}
@@ -18,14 +19,18 @@ module Plutus.PAB.Webserver.Handler
     , getContractReport
     , getEvents
     , contractSchema
+    , invokeEndpoint
     ) where
 
 import           Cardano.Metadata.Types                          (MetadataEffect, QueryResult, Subject,
                                                                   SubjectProperties (SubjectProperties), batchQuery)
 import qualified Cardano.Metadata.Types                          as Metadata
-import           Control.Monad.Freer                             (Eff, Member)
+import           Control.Concurrent.STM                          (atomically)
+import           Control.Monad.Freer                             (Eff, LastMember, Member, type (~>))
 import           Control.Monad.Freer.Error                       (Error, throwError)
 import           Control.Monad.Freer.Extras.Log                  (LogMsg, logInfo)
+import           Control.Monad.Freer.Reader                      (Reader, ask)
+import           Control.Monad.IO.Class                          (MonadIO (..))
 import qualified Data.Aeson                                      as JSON
 import           Data.Map                                        (Map)
 import qualified Data.Map                                        as Map
@@ -41,6 +46,7 @@ import           Ledger.Blockchain                               (Blockchain)
 import           Plutus.PAB.Core                                 (runGlobalQuery)
 import qualified Plutus.PAB.Core                                 as Core
 import qualified Plutus.PAB.Core.ContractInstance                as Instance
+import           Plutus.PAB.Core.ContractInstance.STM            (InstancesState, callEndpointOnInstance)
 import           Plutus.PAB.Effects.Contract                     (ContractEffect, exportSchema)
 import           Plutus.PAB.Effects.EventLog                     (EventLogEffect)
 import           Plutus.PAB.Effects.UUID                         (UUIDEffect)
@@ -145,18 +151,23 @@ contractSchema contractId = do
         exportSchema csContractDefinition
 
 activateContract ::
-       forall t effs.
+       forall t m appBackend effs.
        ( Member (EventLogEffect (ChainEvent t)) effs
+       , Instance.AppBackendConstraints t m appBackend
        , Member (Error PABError) effs
        , Member (ContractEffect t) effs
        , Member UUIDEffect effs
        , Member (LogMsg (Instance.ContractInstanceMsg t)) effs
        , Ord t
        , Show t
+       , LastMember m effs
+       , LastMember m (Reader ContractInstanceId ': appBackend)
+       , Member (Reader InstancesState) effs
        )
-    => t
+    => (Eff appBackend ~> IO)
+    -> t
     -> Eff effs (ContractInstanceState t)
-activateContract = Core.activateContract
+activateContract = Core.activateContractSTM @t @m @appBackend @effs
 
 getContractInstanceState ::
        forall t effs.
@@ -194,6 +205,27 @@ invokeEndpoint (EndpointDescription endpointDescription) payload contractId = do
             newState
     getContractInstanceState contractId
 
+invokeEndpointSTM ::
+       forall t m effs.
+       ( Member (EventLogEffect (ChainEvent t)) effs
+       , Member (LogMsg LM.ContractExeLogMsg) effs
+       , Member (Error PABError) effs
+       , Member (Reader InstancesState) effs
+       , LastMember m effs
+       , MonadIO m
+       )
+    => EndpointDescription
+    -> JSON.Value
+    -> ContractInstanceId
+    -> Eff effs (ContractInstanceState t)
+invokeEndpointSTM d@(EndpointDescription endpointDescription) payload contractId = do
+    logInfo $ LM.InvokingEndpoint endpointDescription payload
+    inst <- ask @InstancesState
+    liftIO $ putStrLn "invokeEndpointSTM: Invoking endpoint"
+    response <- liftIO $ atomically $ callEndpointOnInstance inst d payload contractId
+    liftIO $ putStrLn $ "invokeEndpointSTM response: " <> show response
+    getContractInstanceState contractId
+
 parseContractId ::
        (Member (Error PABError) effs) => Text -> Eff effs ContractInstanceId
 parseContractId t =
@@ -202,7 +234,7 @@ parseContractId t =
         Nothing   -> throwError $ InvalidUUIDError t
 
 handler ::
-       forall effs.
+       forall effs m appBackend.
        ( Member (EventLogEffect (ChainEvent ContractExe)) effs
        , Member (ContractEffect ContractExe) effs
        , Member ChainIndexEffect effs
@@ -212,15 +244,20 @@ handler ::
        , Member (Error PABError) effs
        , Member (LogMsg UnStringifyJSONLog) effs
        , Member (LogMsg (Instance.ContractInstanceMsg ContractExe)) effs
+       , Instance.AppBackendConstraints ContractExe m appBackend
+       , LastMember m effs
+       , Member (Reader InstancesState) effs
+       , LastMember m (Reader ContractInstanceId ': appBackend)
        )
-    => Eff effs ()
+    => (Eff appBackend ~> IO)
+    -> Eff effs ()
        :<|> (Eff effs (FullReport ContractExe)
              :<|> (ContractExe -> Eff effs (ContractInstanceState ContractExe))
              :<|> (Text -> Eff effs (ContractSignatureResponse ContractExe)
                            :<|> (String -> JSON.Value -> Eff effs (ContractInstanceState ContractExe))))
-handler =
+handler runAppBackend =
     healthcheck :<|> getFullReport :<|>
-    (activateContract :<|> byContractInstanceId)
+    (activateContract @ContractExe @m @appBackend runAppBackend :<|> byContractInstanceId)
   where
     byContractInstanceId rawInstanceId =
         (do instanceId <- parseContractId rawInstanceId
@@ -229,7 +266,7 @@ handler =
     handleInvokeEndpoint rawInstanceId rawEndpointDescription rawPayload = do
         instanceId <- parseContractId rawInstanceId
         payload <- parseStringifiedJSON rawPayload
-        invokeEndpoint
+        invokeEndpointSTM
             (EndpointDescription rawEndpointDescription)
             payload
             instanceId
