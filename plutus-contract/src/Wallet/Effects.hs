@@ -25,9 +25,6 @@ module Wallet.Effects(
     , NodeClientEffect(..)
     , publishTx
     , getClientSlot
-    -- * Signing process
-    , SigningProcessEffect(..)
-    , addSignatures
     -- * Chain index
     , ChainIndexEffect(..)
     , AddressChangeRequest(..)
@@ -62,10 +59,6 @@ data NodeClientEffect r where
     GetClientSlot :: NodeClientEffect Slot
 makeEffect ''NodeClientEffect
 
-data SigningProcessEffect r where
-    AddSignatures :: [PubKeyHash] -> Tx -> SigningProcessEffect Tx
-makeEffect ''SigningProcessEffect
-
 {-| Access the chain index. The chain index keeps track of the
     datums that are associated with unspent transaction outputs. Addresses that
     are of interest need to be added with 'startWatching' before their outputs
@@ -91,7 +84,6 @@ makeEffect ''ContractRuntimeEffect
 type WalletEffects =
     '[ WalletEffect
     , NodeClientEffect
-    , SigningProcessEffect
     , ChainIndexEffect
     , ContractRuntimeEffect
     ]

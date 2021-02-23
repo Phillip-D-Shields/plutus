@@ -54,7 +54,7 @@ import           Servant.Client                     (BaseUrl, ClientError)
 import           Servant.Client.Internal.HttpClient (ClientEnv)
 import           Wallet.Effects                     (ChainIndexEffect, NodeClientEffect, WalletEffect)
 import           Wallet.Emulator.Error              (WalletAPIError)
-import           Wallet.Emulator.Wallet             (Wallet, WalletState)
+import           Wallet.Emulator.Wallet             (Wallet)
 
 
 type Wallets = Map Wallet PrivateKey
