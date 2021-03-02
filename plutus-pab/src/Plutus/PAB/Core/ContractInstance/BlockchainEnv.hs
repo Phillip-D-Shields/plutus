@@ -37,7 +37,7 @@ startNodeClient ::
   -> IO BlockchainEnv
 startNodeClient socket instancesState =  do
     env <- STM.atomically emptyBlockchainEnv
-    _ <- Client.runClientNode socket (processBlock env instancesState)
+    _ <- Client.runClientNode socket (\block -> STM.atomically . processBlock env instancesState block)
     _ <- forkIO (clientEnvLoop env instancesState)
     pure env
 
@@ -73,8 +73,8 @@ updateInterestingAddresses BlockchainEnv{beAddressMap} ClientEnv{ceAddresses} = 
 
 -- | Go through the transactions in a block, updating the 'BlockchainEnv'
 --   when any interesting addresses or transactions have changed.
-processBlock :: BlockchainEnv -> InstancesState -> Block -> Slot -> IO ()
-processBlock BlockchainEnv{beAddressMap, beTxChanges, beCurrentSlot, beTxIndex} instancesState transactions slot = STM.atomically $ do
+processBlock :: BlockchainEnv -> InstancesState -> Block -> Slot -> STM ()
+processBlock BlockchainEnv{beAddressMap, beTxChanges, beCurrentSlot, beTxIndex} instancesState transactions slot = do
   clientEnv <- getClientEnv instancesState
   addressMap <- STM.readTVar beAddressMap
   chainIndex <- STM.readTVar beTxIndex
