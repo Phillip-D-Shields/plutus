@@ -72,6 +72,13 @@ rec {
     }) client server-invoker generated-purescript generate-purescript;
   };
 
+  marlowe-marketplace = pkgs.recurseIntoAttrs rec {
+    inherit (pkgs.callPackage ./marlowe-marketplace-client {
+      inherit (plutus.lib) buildPursPackage buildNodeModules filterNpm gitignore-nix;
+      inherit webCommon webCommonMarlowe;
+    }) client;
+  };
+
   marlowe-symbolic-lambda = pkgsMusl.callPackage ./marlowe-symbolic/lambda.nix {
     inherit (haskell.muslProject) ghcWithPackages;
   };
