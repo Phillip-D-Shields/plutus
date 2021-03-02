@@ -218,9 +218,7 @@ startSTMInstanceThread runAppBackend instanceID = do
         $ stmInstanceLoop @t @m @(Reader InstanceState ': Reader ContractInstanceId ': appBackend) instanceID
 
     pure state
-    -- TODO: Store interesting addresses & tx IDs in contract state
     -- TODO: Separate chain index queries (non-blocking) from waiting for updates (blocking)
-    -- TODO: Properly implement nextTxAt / address changed requests
 
 type AppBackendConstraints t m effs =
     ( LastMember m effs

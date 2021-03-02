@@ -166,8 +166,8 @@ activateContract ::
        , LastMember m (Reader ContractInstanceId ': appBackend)
        , Member (Reader InstancesState) effs
        )
-    => (Eff appBackend ~> IO)
-    -> t
+    => (Eff appBackend ~> IO) -- ^ How to run the @appBackend@ effects in a new thread.
+    -> t -- ^ The contract that is to be activated
     -> Eff effs (ContractInstanceState t)
 activateContract = Core.activateContractSTM @t @m @appBackend @effs
 
