@@ -163,6 +163,7 @@ processEndpointRequestsSTM =
     maybeToHandler (traverse (extract Events.Contract._UserEndpointRequest))
     >>> (RequestHandler $ \q@Request{rqID, itID, rqRequest} -> fmap (Response rqID itID) (fmap (UserEndpointResponse (aeDescription rqRequest)) . InstanceState.awaitEndpointResponse q <$> ask))
 
+-- | 'RequestHandler' that uses TVars to wait for events
 stmRequestHandler ::
     forall t effs.
     ( Member (EventLogEffect (ChainEvent t)) effs
@@ -180,6 +181,8 @@ stmRequestHandler ::
     )
     => RequestHandler effs (Request ContractPABRequest) (STM (Response ContractResponse))
 stmRequestHandler = fmap sequence (wrapHandler (fmap pure nonBlockingRequests) <> blockingRequests) where
+
+    -- requests that can be handled by 'WalletEffect', 'ChainIndexEffect', etc.
     nonBlockingRequests =
         processOwnPubkeyRequests @effs
         <> processUtxoAtRequests @effs
@@ -188,6 +191,8 @@ stmRequestHandler = fmap sequence (wrapHandler (fmap pure nonBlockingRequests) <
         <> processNextTxAtRequests @effs
         <> processInstanceRequests @effs
         <> processNotificationEffects @effs
+
+    -- requests that wait for changes to happen
     blockingRequests =
         wrapHandler (processAwaitSlotRequestsSTM @effs)
         <> wrapHandler (processTxConfirmedRequestsSTM @effs)
@@ -237,6 +242,7 @@ type AppBackendConstraints t m effs =
     , Member (Reader BlockchainEnv) effs
     )
 
+-- | Handle requests using 'respondToRequestsSTM' until the contract is done.
 stmInstanceLoop ::
     forall t m effs.
     ( AppBackendConstraints t m effs
@@ -248,10 +254,8 @@ stmInstanceLoop ::
 stmInstanceLoop instanceId = do
     requests <- hooks . csCurrentState <$> lookupContractState @t instanceId
     updateState requests
-    liftIO $ putStrLn $ "stmInstanceLoop: " <> show instanceId -- FIXME
     case requests of
         [] -> do
-            liftIO $ putStrLn "stmInstanceLoop: Done"
             ask >>= liftIO . STM.atomically . InstanceState.setActivity Done
         (x:xs) -> do
             response <- respondToRequestsSTM @t instanceId (x :| xs)

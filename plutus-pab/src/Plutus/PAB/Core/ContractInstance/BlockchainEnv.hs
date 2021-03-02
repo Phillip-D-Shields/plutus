@@ -41,6 +41,8 @@ startNodeClient socket instancesState =  do
     _ <- forkIO (clientEnvLoop env instancesState)
     pure env
 
+-- | Interesting addresses and transactions from all the
+--   active instances.
 data ClientEnv = ClientEnv{ceAddresses :: Set Address, ceTransactions :: Set TxId} deriving Eq
 
 initialClientEnv :: ClientEnv
