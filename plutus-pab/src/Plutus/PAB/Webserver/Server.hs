@@ -37,22 +37,22 @@ import           Servant                                        (Application, Ha
 import           Servant.Client                                 (BaseUrl (baseUrlPort))
 
 
-import           Control.Monad.Freer.Extras.Log   (LogMsg, logInfo, mapLog)
-import           Plutus.PAB.App                   (App, AppBackend, runApp)
-import           Plutus.PAB.Arbitrary             ()
-import           Plutus.PAB.Core.ContractInstance (ContractInstanceMsg)
-import Plutus.PAB.Core.ContractInstance.STM (InstancesState, BlockchainEnv)
+import           Control.Monad.Freer.Extras.Log                 (LogMsg, logInfo, mapLog)
+import           Plutus.PAB.App                                 (App, AppBackend, runApp)
+import           Plutus.PAB.Arbitrary                           ()
+import           Plutus.PAB.Core.ContractInstance               (ContractInstanceMsg)
 import qualified Plutus.PAB.Core.ContractInstance.BlockchainEnv as BlockchainEnv
-import qualified Plutus.PAB.Core.ContractInstance.STM as ContractInstance
-import qualified Plutus.PAB.Monitoring.PABLogMsg  as LM
-import           Plutus.PAB.ParseStringifiedJSON  (UnStringifyJSONLog)
-import           Plutus.PAB.Types                 (Config, ContractExe, PABError (InvalidUUIDError), baseUrl,
-                                                   pabWebserverConfig, staticDir, Config(..))
-import           Plutus.PAB.Webserver.API         (API, WSAPI)
-import           Plutus.PAB.Webserver.Handler     (handler)
-import           Plutus.PAB.Webserver.Types       (WebSocketLogMsg)
-import           Plutus.PAB.Webserver.WebSocket   (handleWS)
-import qualified Wallet.Emulator.Wallet as Wallet
+import           Plutus.PAB.Core.ContractInstance.STM           (BlockchainEnv, InstancesState)
+import qualified Plutus.PAB.Core.ContractInstance.STM           as ContractInstance
+import qualified Plutus.PAB.Monitoring.PABLogMsg                as LM
+import           Plutus.PAB.ParseStringifiedJSON                (UnStringifyJSONLog)
+import           Plutus.PAB.Types                               (Config (..), ContractExe, PABError (InvalidUUIDError),
+                                                                 baseUrl, pabWebserverConfig, staticDir)
+import           Plutus.PAB.Webserver.API                       (API, WSAPI)
+import           Plutus.PAB.Webserver.Handler                   (handler)
+import           Plutus.PAB.Webserver.Types                     (WebSocketLogMsg)
+import           Plutus.PAB.Webserver.WebSocket                 (handleWS)
+import qualified Wallet.Emulator.Wallet                         as Wallet
 
 runHandler :: InstancesState -> Trace IO LM.PABLogMsg -> CM.Configuration -> Config -> Eff (Reader InstancesState ': LogMsg LM.ContractExeLogMsg ': LogMsg (ContractInstanceMsg ContractExe) ': LogMsg WebSocketLogMsg ': LogMsg UnStringifyJSONLog ': AppBackend _) a -> IO (Either PABError a)
 runHandler instancesState trace logConfig config =
