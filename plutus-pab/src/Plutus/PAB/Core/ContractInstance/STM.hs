@@ -50,7 +50,8 @@ import           Ledger.AddressMap                               (AddressMap)
 import           Wallet.Emulator.ChainIndex.Index                (ChainIndex)
 import qualified Wallet.Emulator.ChainIndex.Index                as Index
 import           Wallet.Types                                    (AddressChangeRequest (..), AddressChangeResponse (..),
-                                                                  ContractInstanceId, EndpointDescription)
+                                                                  ContractInstanceId, EndpointDescription,
+                                                                  NotificationError (..))
 
 {- Note [Contract instance thread model]
 
@@ -138,10 +139,10 @@ data TxStatus =
 --   may be interested in.
 data BlockchainEnv =
     BlockchainEnv
-        { beCurrentSlot :: TVar Slot
-        , beAddressMap  :: TVar AddressMap
-        , beTxIndex     :: TVar ChainIndex
-        , beTxChanges   :: TVar (Map TxId TxStatus)
+        { beCurrentSlot :: TVar Slot -- ^ Current slot
+        , beAddressMap  :: TVar AddressMap -- ^ Address map used for updating the chain index
+        , beTxIndex     :: TVar ChainIndex -- ^ Local chain index (not persisted)
+        , beTxChanges   :: TVar (Map TxId TxStatus) -- ^ Map of transaction IDs to statuses
         }
 
 -- | Initialise an empty 'BlockchainEnv' value
@@ -170,6 +171,7 @@ awaitEndpointResponse Request{rqID, itID} InstanceState{issEndpoints} = do
         Nothing                        -> empty
         Just OpenEndpoint{oepResponse} -> STM.readTMVar oepResponse
 
+-- | Whether the contract instance is still waiting for an event.
 data Activity = Active | Done
 
 -- | The state of an active contract instance.
@@ -221,18 +223,19 @@ openEndpoints = STM.readTVar . issEndpoints
 callEndpoint :: OpenEndpoint -> EndpointValue Value -> STM ()
 callEndpoint OpenEndpoint{oepResponse} = STM.putTMVar oepResponse
 
-callEndpointOnInstance :: InstancesState -> EndpointDescription -> Value -> ContractInstanceId -> STM (Maybe String)
+-- | Call an endpoint on a contract instance.
+callEndpointOnInstance :: InstancesState -> EndpointDescription -> Value -> ContractInstanceId -> STM (Maybe NotificationError)
 callEndpointOnInstance (InstancesState m) endpointDescription value instanceID = do
     instances <- STM.readTVar m
     case Map.lookup instanceID instances of
-        Nothing -> pure (Just "Instance not found")
+        Nothing -> pure $ Just $ InstanceDoesNotExist instanceID
         Just is -> do
             mp <- openEndpoints is
             let match OpenEndpoint{oepName=ActiveEndpoint{aeDescription=d}} = endpointDescription == d
             case filter match $ fmap snd $ Map.toList mp of
-                []   -> pure (Just "endpoint not active")
+                []   -> pure $ Just $ EndpointNotAvailable instanceID endpointDescription
                 [ep] -> callEndpoint ep (EndpointValue value) >> pure Nothing
-                _    -> pure (Just "endpoint active multiple times")
+                _    -> pure $ Just $ MoreThanOneEndpointAvailable instanceID endpointDescription
 
 -- | State of all contract instances that are currently running
 newtype InstancesState = InstancesState (TVar (Map ContractInstanceId InstanceState))
@@ -259,6 +262,7 @@ watchedTransactions (InstancesState m) = do
     allSets <- traverse (STM.readTVar . issTransactions) (snd <$> Map.toList mp)
     pure $ fold allSets
 
+-- | Respond to an 'AddressChangeRequest' for a future slot.
 waitForAddressChange :: AddressChangeRequest -> BlockchainEnv -> STM AddressChangeResponse
 waitForAddressChange AddressChangeRequest{acreqSlot, acreqAddress} b@BlockchainEnv{beTxIndex} = do
     _ <- awaitSlot (succ acreqSlot) b
